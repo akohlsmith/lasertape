@@ -1,10 +1,60 @@
-# reverse engineering a laser measuring tape module
+# Reverse engineering a laser measuring tape module
 
 From [Amazon](https://www.amazon.ca/gp/product/B0DN5XTZYH), $20:
 
 <img src="images/bilipala_device.png" alt="bilipala_device" style="zoom:33%;" />
 
 Contains a PCB with some ARM processor (guessing by the labelled SWDCK/SWDIO pads) and a separate laser measurement module.
+
+## TL;DR: I just want to use it
+
+The module uses a simple serial protocol. It requires 3.3V and communicates over a basic UART interface.
+
+### Connector
+
+It uses a little 4 pin connector which is likely JST-SH. If you consider the pin closest to the edge of the PCB as pin 1, the pinout is as follows:
+
+| Pin  | Description               |
+| ---- | ------------------------- |
+| 1    | 3.3V (main PCB says 3.6V) |
+| 2    | Ground                    |
+| 3    | TXD (Module -> MCU)       |
+| 4    | RXD (MCU -> Module)       |
+
+### Protocol
+
+It uses a very basic serial protocol where all data is sent as ASCII digits. The start of packet marker is 0x24 (`$`) and the end of packet marker is 0x26 (`&`). All packets appear to contain an even number of ASCII digits, which is important for the checksum algorithm. The last two ASCII digits in each packet form a checksum for the packet.
+
+The serial setup is just 115200, 8 data bits, no parity and one stop bit. The UART signaling uses the normal "idle high" format.
+
+| Packet               | Direction   | Description                                                  |
+| -------------------- | ----------- | ------------------------------------------------------------ |
+| `$0003260130&`       | to module   | Turns on the sighting laser                                  |
+| `$0003260029&`       | to module   | Turns off the sighting laser                                 |
+| `$00022123&`         | to module   | Take distance measurement                                    |
+| `$000621xxxxxxxxyy&` | from module | The measurement result, `x` = distance in mm, `y` = checksum |
+| `$00023335&`         | from module | command acknowledgement?                                     |
+
+### Checksum Algorithm
+
+This is one of the most ridiculous checksums I've run across. I figured it out by eyeballing the messages and a couple educated guesses:
+
+1. Pair up the digits in the message to form values that each range from 0-99
+2. Sum all these values
+3. Take the answer and wrap it at 100
+
+The last two digits of the message should equal the checksum.
+
+e.g.
+
+* `$00023335&`: 00 + 02 + 33 = 35, which is what the same as the last two digits of the message
+* `$0003260130&`: 00 + 03 + 26 + 01 = 30
+* `$0006210000001643&`: 00 + 06 + 21 + 00 + 00 + 00 + 16 = 43
+* `$0006210000008815&`: 00 + 06 + 21 + 00 + 00 + 00 + 88 = 115, % 100 is 15
+
+### Example code
+
+I've included a [very basic Ardiuno script](./lasertape.ino) which drives the module to repeatedly take measurements and displays them on the serial port. It does not verify checksums. Note that you do not appear to need to issue the "laser on" or "laser off" commands; sending a "take measurement" command automatically turns the laser on and off as needed.
 
 ## Internal Photos
 
@@ -14,20 +64,13 @@ Contains a PCB with some ARM processor (guessing by the labelled SWDCK/SWDIO pad
 
 <img src="images/laser_bottom2.jpeg" alt="laser_bottom2" style="zoom:33%;" />
 
-## Module Connector
+## Reverse-engineering the protocol
 
-This looks like a standard four pin JST-?? connector. I'm designating the pin closest to the edge of the board as pin 1:
+Apparently this wasn't strictly needed, as I later found a [similar module on Alibaba](https://www.alibaba.com/product-detail/RS232ttl-Serial-Laser-Rangefinder-Module-with_62507863905.html) which uses the same protocol. However the page does not appear to know about the checksum and includes other incorrect information (such as returninig a measurement and calling it a bad measurement):
 
-| Pin  | Description               |
-| ---- | ------------------------- |
-| 1    | 3.3V (main PCB says 3.6V) |
-| 2    | Ground                    |
-| 3    | TXD (Module -> MCU)       |
-| 4    | RXD (MCU -> Module)       |
+![image-20250617142623067](./images/alibaba.png)
 
-Serial parameters are 115200,N81. 
-
-## Communication Captures
+## Data Captures
 
 For all of these, the top line is module -> MCU, bottom line is MCU -> module. The communication is split up into multiple images partly for clarity, but also because there are long (500 - 5000ms) gaps between the MCU and module traffic.
 
@@ -139,16 +182,6 @@ Decode (both are the same): `$0003260029&` `$000233356&$0003269625&`
 
 ![0.793-1](images/0.793-1.png)
 
-## Common messages
-
-`$0003260130&` - I think this turns the sighting laser on?
-
-`$00022123&` - this happens right before an immediate response, I think this is "take measurement"
-
-`$00023335&` - this appears to be an acknowledgement from the module?
-
-`$000621xxxxxxxxyy&` - `xxxxxxxx` is the measurement value in 0.001m steps, `yy` is a checksum
-
 ## Conclusions
 
 1. all commands and responses start with `$` and end with `&`
@@ -156,133 +189,4 @@ Decode (both are the same): `$0003260029&` `$000233356&$0003269625&`
 3. The measurement time seems to vary from about a half second to a few seconds. I'm guessing that this depends on the actual distance, optical conditions of the environment as well as whatever internal processing the module does.
 4. All unit conversion and fancy modes of operation are done by the MCU, not the module, which is a great thing.
 
-Some of the captures do not have a response value which equals the distance -- I didn't notice that the unit would default to measuring from the bottom of the case instead of the top (where the "business end" of the module is). Once I made sure the unit was set to measure from the top, the values the module provided over the UART always matched what was shown on the screen.
-
-### Checksum algorithm
-
-This is one of the most ridiculous checksums I've run across. I figured it out by eyeballing the messages and a couple educated guesses:
-
-1. Pair up the digits in the message to form values that each range from 0-99
-2. Sum all these values
-3. Take the answer and wrap it at 100
-
-The last two digits of the message should equal the checksum.
-
-e.g.
-
-* `$00023335&`: 00 + 02 + 33 = 35, which is what the same as the last two digits of the message
-* `$0003260130&`: 00 + 03 + 26 + 01 = 30
-* `$0006210000001643&`: 00 + 06 + 21 + 00 + 00 + 00 + 16 = 43
-* `$0006210000008815&`: 00 + 06 + 21 + 00 + 00 + 00 + 88 = 115, % 100 is 15
-
-## Example Code
-
-I have this working with just a basic Arduino sketch:
-
-```c
-#define RXD_PIN				(0)
-#define TXD_PIN				(1)
-#define MODULE_UART			(1)
-#define LASER_TIMEOUT_MS	(1500)
-
-HardwareSerial muart(MODULE_UART);
-
-int do_measure(uint32_t timeout_ms)
-{
-	String rxdata;					/* cheater way to concatenate data */
-    uint32_t timeout;				/* millis() value of when to stop waiting */
-	int distance;					/* measured distance, in mm (0 = no result) */
-
-    /*
-     * clear out any existing serial data, set a timeout of 0 (nonblocking mode)
-     * and send the "take measurement" command
-     */
-	muart.flush();
-	muart.setTimeout(0);
-	muart.print("$00022123&");
-
-	/*
-	 * collect as much serial data as we can get in the next two seconds
-	 * any time there is no more data available, see if the module has
-	 * sent us a measurement result so we can drop out earlier than the
-	 * timeout. The module seems to take anywhere from 500-1500ms depending on
-	 * the distance measured and whatever internal processing delays it has
-	 */
-    distance = 0;
-	timeout = millis() + timeout_ms;
-	while (millis() < timeout) {
-		bool new_data;
-
-        /* read as much data as we can without blocking and append it to the buffer */
-		new_data = false;
-		while (muart.available()) {
-			rxdata += muart.readString();
-			new_data = true;
-		};
-
-        /* if we pulled in any new data, try to find the measurement response */
-		if (new_data) {
-			const char *buf;	/* buffer of entire response from module */
-            const char *mr;		/* pointer to the measurement response message */
-            char *mv;			/* pointer to just the value in the response */
-
-            /*
-             * I don't do Arduino very well. Just use C string/pointer manipulation.
-             * if the "measurement result" response is in the buffer, and there's
-             * enough characters in the buffer for the whole measurement result,
-             * then strip out the actual measurement and use it.
-             *
-             * *buf is the whole buffer (everything received up to this point).
-             * it will look something like this:
-             * $00023335&$0003263766&$00023335&$0006210000008714&
-             *
-             * I use strstr() to find the start of the result response ($000621)
-             * and if it's found, *mr will point to it.
-             * 
-             * $000621xxxxxxxxyy&
-             *                  ^-- mr[17]    = end of packet
-             *                ^^--- mr[15-16] = checksum
-             *        ^^^^^^^^----- mr[7-14]  = measurement in mm
-             *  ^^^^^^------------- mr[1-6]   = measurement result header
-             * ^------------------- mr[0]     = start of packet
-			 *
-			 * I set *mv to the start of the value in the response, then cut off
-			 * the checksum/footer and use atoi() to convert the ASCII character
-			 * buffer to an actual integer value which is the distance in mm.
-			 */
-            buf = rxdata.c_str();
-			if ((mr = strstr(buf, "$000621")) && strlen(mr) > 11) {
-				mv = (char *)&mr[7];
-				mv[8] = 0x00;
-
-                /* we've got a measurement, drop out early */
-                distance = atoi(mv);
-                break;
-			}
-		}
-	};	/* while(not timed out) */
-    
-    return distance;
-}
-
-void setup()
-{
-	Serial.begin(115200);
-    muart.begin(115200, SERIAL_8N1, RXD_PIN, TXD_PIN);
-}
-
-void loop()
-{
-    int distance;
-    
-    if ((distance = do_measure(LASER_TIMEOUT_MS)) > 0) {
-		Serial.printf("distance = %dmm\n", distance);
-    }
-}
-```
-
-## Update - found the module on Alibaba
-
-So much for being smart - I managed to find the module [on Alibaba](https://www.alibaba.com/product-detail/RS232ttl-Serial-Laser-Rangefinder-Module-with_62507863905.html). Interestingly, they consider the checksum part of the measurement, and just repeat the measurement result for "bad measurement".
-
-![image-20250617142623067](./images/alibaba.png)
+My initial analysis was hampered by the unit defaulting to measuring the distance relative to the bottom of the device, rather than the top (where the "business end" of the measurement module is located). This explains why some of the captures above do not have a response value which equals the distance. Once I made sure the unit was set to measure from the top, the values the module provided over the UART always matched what was shown on the screen.
