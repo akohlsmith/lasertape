@@ -29,11 +29,12 @@ The serial setup is just 115200, 8 data bits, no parity and one stop bit. The UA
 
 | Packet               | Direction   | Description                                                  |
 | -------------------- | ----------- | ------------------------------------------------------------ |
-| `$0003260130&`       | to module   | Turns on the sighting laser                                  |
-| `$0003260029&`       | to module   | Turns off the sighting laser                                 |
+| `$0003260130&`       | to module   | Turns on the laser                                           |
+| `$0003260029&`       | to module   | Turns off the laser                                          |
 | `$00022123&`         | to module   | Take distance measurement                                    |
 | `$000621xxxxxxxxyy&` | from module | The measurement result, `x` = distance in mm, `y` = checksum |
 | `$00023335&`         | from module | command acknowledgement?                                     |
+| `$000326xxyy&`       | from module | appears to be a response to "laser on/off", `x` changes, `y` = checksum |
 
 ### Checksum Algorithm
 
@@ -74,7 +75,7 @@ Apparently this wasn't strictly needed, as I later found a [similar module on Al
 
 For all of these, the top line is module -> MCU, bottom line is MCU -> module. The communication is split up into multiple images partly for clarity, but also because there are long (500 - 5000ms) gaps between the MCU and module traffic.
 
-### 0.239m
+### 0.239m:
 
 ![0.239-1](images/0.239-1.png)
 
@@ -84,39 +85,52 @@ For all of these, the top line is module -> MCU, bottom line is MCU -> module. T
 
 ![0.239-4](images/0.239-4.png)
 
-Decode: `$0003260130&` `$00023335&$0003261948&` `$00022123&` `$00023335&` `$0006210000011442&` 
+| MCU -> Module  | Module -> MCU        | Description      |
+| -------------- | -------------------- | ---------------- |
+| `$0003260130&` |                      | laser on         |
+|                | `$00023335&`         | ACK              |
+|                | `$0003261948&`       | ?                |
+| `$00022123&`   |                      | Take Measurement |
+|                | `$00023335&`         | ACK              |
+|                | `$0006210000011442&` | Result (114mm)   |
 
-Interesting that that second image seems to show two back-to-back responses from the module?
-
-### 2.809m
+### 2.809m:
 
 ![2.809-1](images/2.809-1.png)
 
 ![2.809-2](images/2.809-2.png)
 
-Decode:`$00022123&` `$00023335&` `$0006210000268942&`
+| MCU -> Module | Module -> MCU        | Description      |
+| ------------- | -------------------- | ---------------- |
+| `$00022123&`  |                      | Take Measurement |
+|               | `$00023335&`         | ACK              |
+|               | `$0006210000268942&` | Result (2689mm)  |
 
-## laser on?
+### laser on:
 
 ![laseron-1](images/laseron-1.png)
 
 ![laseron-2](images/laseron-2.png)
 
-Decode: `$0003260130&` `$00023335&$0003262756&`
+| MCU -> Module  | Module -> MCU  | Description |
+| -------------- | -------------- | ----------- |
+| `$0003260130&` |                | Laser On    |
+|                | `$00023335&`   | ACK         |
+|                | `$0003262756&` | ?           |
 
-The second pic here also has two back-to-back responses.
-
-### 1.919m
+### 1.919m:
 
 ![1.919-1](images/1.919-1.png)
 
 ![1.919-2](images/1.919-2.png)
 
-Decode: `$00022123&` `$00023335&` `$0006210000191965&`
+| MCU -> Module | Module -> MCU        | Description      |
+| ------------- | -------------------- | ---------------- |
+| `$00022123&`  |                      | Take Measurement |
+|               | `$00023335&`         | ACK              |
+|               | `$0006210000191965&` | Result (1919mm)  |
 
-I can actually see "1919" in that second image at the end.
-
-### 1.3m
+### 1.3m:
 
 ![1.3-1](images/1.3-1.png)
 
@@ -126,11 +140,16 @@ I can actually see "1919" in that second image at the end.
 
 ![1.3-4](images/1.3-4.png)
 
-Decode: `$0003260130&` `$00023335&$0003264069&` `$00022123&` `$00023335&` `$0006210000130040&`
+| MCU -> Module  | Module -> MCU        | Description      |
+| -------------- | -------------------- | ---------------- |
+| `$0003260130&` |                      | Laser On         |
+|                | `$00023335&`         | ACK              |
+|                | `$0003264069&`       | ?                |
+| `$00022123&`   |                      | Take Measurement |
+|                | `$00023335&`         | ACK              |
+|                | `$0006210000130040&` | Result (1300mm)  |
 
- I see 1.3 there in the last bit
-
-### err500
+### err500:
 
 ![err500-1](images/err500-1.png)
 
@@ -140,9 +159,15 @@ Decode: `$0003260130&` `$00023335&$0003264069&` `$00022123&` `$00023335&` `$0006
 
 ![er500-4](images/er500-4.png)
 
-Decode: `$00022123&` `$00023335&` `$00022123&` `$0003260029&` `$0006210000001643&`
+| MCU -> Module  | Module -> MCU        | Description                     |
+| -------------- | -------------------- | ------------------------------- |
+| `$00022123&`   |                      | Take Measurement                |
+|                | `$00023335&`         | ACK                             |
+| `$00022123&`   |                      | Take Measurement                |
+| `$0003260029&` |                      | ?                               |
+|                | `$0006210000001643&` | Result (16mm), bad measurement? |
 
-### err255
+### err255:
 
 ![err255-1](images/err255-1.png)
 
@@ -150,9 +175,16 @@ Decode: `$00022123&` `$00023335&` `$00022123&` `$0003260029&` `$0006210000001643
 
 ![err255-3](images/err255-3.png)
 
-Decode: `$0003260130&` `$000233356&$0003269625&` `$00022123&` `$00023335&`
+| MCU -> Module  | Module -> MCU         | Description      |
+| -------------- | --------------------- | ---------------- |
+| `$0003260130&` |                       | Laser On         |
+|                | `$00023335&`          | ACK              |
+|                | `$0003269625&`        | ?                |
+| `$00022123&`   |                       | Take Measurement |
+|                | `$00023335&`          | ACK              |
+|                | (timeout,  no result) |                  |
 
-### err261
+### err261:
 
 ![err261-1](images/err261-1.png)
 
@@ -160,27 +192,34 @@ Decode: `$0003260130&` `$000233356&$0003269625&` `$00022123&` `$00023335&`
 
 ![err261-3](images/err261-3.png)
 
-Decode: `$0003260130&` `$00023335&$0003263059&` `$00022123&` `$00023335&`
+| MCU -> Module  | Module -> MCU         | Description      |
+| -------------- | --------------------- | ---------------- |
+| `$0003260130&` |                       | Laser On         |
+|                | `$00023335&`          | ACK              |
+|                | `$0003263059&`        | ?                |
+| `$00022123&`   |                       | Take Measurement |
+|                | `$00023335&`          | ACK              |
+|                | (timeout,  no result) |                  |
 
-### Unit is on, I briefly press the power button:
+### Unit is on, I briefly press the power button (laser off?):
 
 ![powerbutton-1](images/powerbutton-1.png)
 
 ![powerbutton-2](images/powerbutton-2.png)
 
-(do it again)
+| MCU -> Module  | Module -> MCU  | Description |
+| -------------- | -------------- | ----------- |
+| `$0003260029&` |                | Laser Off   |
+|                | `$00023335&`   | ACK         |
+|                | `$0003269625&` | ?           |
 
-![powerbutton2-1](images/powerbutton2-1.png)
-
-![powerbutton2-2](images/powerbutton2-2.png)
-
-Decode (both are the same): `$0003260029&` `$000233356&$0003269625&`
-
-(consistent command and response, not sure what its purpose is)
-
-### 0.793m
+### 0.793m:
 
 ![0.793-1](images/0.793-1.png)
+
+| MCU -> Module | Module -> MCU        | Description    |
+| ------------- | -------------------- | -------------- |
+|               | `$0006210000079327&` | Result (793mm) |
 
 ## Conclusions
 
