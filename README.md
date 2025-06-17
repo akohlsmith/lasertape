@@ -281,3 +281,8 @@ void loop()
 }
 ```
 
+## Update - found the module on Alibaba
+
+So much for being smart - I managed to find the module [on Alibaba](https://www.alibaba.com/product-detail/RS232ttl-Serial-Laser-Rangefinder-Module-with_62507863905.html). Interestingly, they consider the checksum part of the measurement, and just repeat the measurement result for "bad measurement".
+
+![image-20250617142623067](./images/alibaba.png)
