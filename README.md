@@ -119,7 +119,7 @@ Decode: `$0003260130&` `$000233356&$0003269625&` `$00022123&` `$00023335&`
 
 Decode: `$0003260130&` `$00023335&$0003263059&` `$00022123&` `$00023335&`
 
-### Unit is on, I I briefly press the power button:
+### Unit is on, I briefly press the power button:
 
 ![powerbutton-1](images/powerbutton-1.png)
 
@@ -139,7 +139,7 @@ Decode (both are the same): `$0003260029&` `$000233356&$0003269625&`
 
 ![0.793-1](images/0.793-1.png)
 
-## common messages
+## Common messages
 
 `$0003260130&` - I think this turns the sighting laser on?
 
@@ -152,11 +152,28 @@ Decode (both are the same): `$0003260029&` `$000233356&$0003269625&`
 ## Conclusions
 
 1. all commands and responses start with `$` and end with `&`
-2. it looks like the last two characters in the commands and responses make up an ASCII value checksum. I don't try to compute or compare them.
+2. The last two digits in each message form a checksum.
 3. The measurement time seems to vary from about a half second to a few seconds. I'm guessing that this depends on the actual distance, optical conditions of the environment as well as whatever internal processing the module does.
 4. All unit conversion and fancy modes of operation are done by the MCU, not the module, which is a great thing.
 
 Some of the captures do not have a response value which equals the distance -- I didn't notice that the unit would default to measuring from the bottom of the case instead of the top (where the "business end" of the module is). Once I made sure the unit was set to measure from the top, the values the module provided over the UART always matched what was shown on the screen.
+
+### Checksum algorithm
+
+This is one of the most ridiculous checksums I've run across. I figured it out by eyeballing the messages and a couple educated guesses:
+
+1. Pair up the digits in the message to form values that each range from 0-99
+2. Sum all these values
+3. Take the answer and wrap it at 100
+
+The last two digits of the message should equal the checksum.
+
+e.g.
+
+* `$00023335&`: 00 + 02 + 33 = 35, which is what the same as the last two digits of the message
+* `$0003260130&`: 00 + 03 + 26 + 01 = 30
+* `$0006210000001643&`: 00 + 06 + 21 + 00 + 00 + 00 + 16 = 43
+* `$00062100000088&`: 00 + 06 + 21 + 00 + 00 + 00 + 88 = 115, % 100 is 15
 
 ## Example Code
 
